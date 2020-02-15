@@ -19,91 +19,69 @@ func main() {
 
 	app := cli.NewApp()
 	app.Name = "splot"
-	app.Usage = "Simple plots"
+	app.Usage = "simple plots"
 	app.Version = "1.0.0"
 	app.Flags = []*cli.Flag{
 		{
 			Name:     "w, width",
-			Usage:    "",
+			Usage:    "width of the plot",
 			DefValue: "100",
 			Value:    &width,
 		},
 		{
 			Name:     "h, height",
-			Usage:    "",
+			Usage:    "height of the plot (an extra row will be added to this value)",
 			DefValue: "10",
 			Value:    &height,
 		},
 		{
 			Name:     "m, marker",
-			Usage:    "",
+			Usage:    "the character to use in the plot",
 			DefValue: ".",
 			Value:    &marker,
 		},
 		{
 			Name:   "l, line",
-			Usage:  "",
+			Usage:  "when present, displays a line plot instead of full bars",
 			IsBool: true,
 			Value:  &isLine,
 		},
 	}
 
 	app.Action = func(c *cli.Context) {
-		values := []float64{}
+		values, _ := readInput()
 
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			text := scanner.Text()
-			f, err := strconv.ParseFloat(text, 64)
-			if err != nil {
-				continue
-			}
-			values = append(values, f)
-		}
-		if err := scanner.Err(); err != nil {
-			fmt.Fprintln(os.Stderr, "reading standard input:", err)
+		min, max, stepY, stepX, width := determineBounds(values, width, height)
+
+		yAxisLabelWidth := len(fmt.Sprintf("%.2f", max))
+
+		cols := make([]float64, width)
+		for i := 0; i < width; i++ {
+			cols[i] = getValue(values, stepX, i)
 		}
 
-		sorted := make([]float64, len(values))
-		copy(sorted, values)
+		for y := height + 1; y > 0; y-- {
+			cap := min + (stepY * float64(y-1))
+			bot := min + (stepY * float64(y))
 
-		sort.Float64s(sorted)
-
-		min := sorted[0]
-		max := sorted[len(sorted)-1]
-		stepY := int(math.Ceil((max - min) / float64(height)))
-
-		// move the bottom of the range a bit lower so all x values show something
-		// on the y axis
-		min = min - float64(stepY)*2.0
-		stepY = int(math.Ceil((max - min) / float64(height)))
-
-		// if we have less values than the specified width,
-		// make the width match the number of values we have
-		if len(values) < width {
-			width = len(values)
-		}
-
-		// TODO - if len(values) > width, remove every nth value? IDK
-
-		for y := 0; y < height; y++ {
-			cap := int(math.Ceil(max)) - (stepY * y)
-			bot := int(math.Ceil(max)) - (stepY * (y - 1))
 			for x := 0; x < width; x++ {
-				fmt.Print(" ")
+
 				if x == 0 {
-					fmt.Printf("%3d", cap) // TODO - make this work in all cases
+					format := "%" + strconv.Itoa(yAxisLabelWidth) + ".2f"
+					fmt.Printf(format, cap)
+					fmt.Print(" ")
+				} else {
 					fmt.Print(" ")
 				}
 
 				if isLine {
-					if values[x] >= float64(cap) && values[x] <= float64(bot) {
+					if cols[x] >= cap && cols[x] <= bot {
 						fmt.Print(marker)
 					} else {
 						fmt.Print(" ")
 					}
 				} else {
-					if values[x] >= float64(cap) {
+					if cols[x] >= cap {
 						fmt.Print(marker)
 					} else {
 						fmt.Print(" ")
@@ -118,4 +96,62 @@ func main() {
 	}
 
 	app.Run(os.Args)
+}
+
+func readInput() ([]float64, error) {
+	values := []float64{}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		text := scanner.Text()
+		f, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			continue
+		}
+		values = append(values, f)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return values, nil
+}
+
+func determineBounds(values []float64, width int, height int) (float64, float64, float64, int, int) {
+	sorted := make([]float64, len(values))
+	copy(sorted, values)
+	sort.Float64s(sorted)
+
+	min := sorted[0]
+	max := sorted[len(sorted)-1]
+
+	stepY := (max - min) / float64(height)
+
+	var stepX int
+	if len(values) < width {
+		stepX = 1
+		width = len(values)
+	} else {
+		stepX = int(math.Ceil(float64(len(values)) / float64(width)))
+	}
+
+	return min, max, stepY, stepX, width
+}
+
+func getValue(values []float64, group int, iter int) float64 {
+	if group == 1 {
+		return values[iter]
+	}
+
+	acc := float64(0)
+	num := 0
+	for i := 0; i < group; i++ {
+		idx := iter*group + i
+		if idx < len(values) {
+			acc += values[idx]
+			num++
+		}
+	}
+
+	return acc / float64(num)
 }
